@@ -6,6 +6,7 @@ import jwt, { Secret } from "jsonwebtoken";
 import ejs from "ejs";
 import path from "path";
 import sendMail from "../utils/sendMail";
+import { sendToken } from "../utils/jwt";
 require("dotenv").config();
 
 // Register User
@@ -91,14 +92,14 @@ export const activateUser = CatchAsyncError(
         activation_token,
         process.env.ACTIVATION_SECRET as string
       ) as { user: IUser; activationCode: string };
-      if(newUser.activationCode !== activation_code){
-          return next(new ErrorHandler("Invalid activation code", 400));
+      if (newUser.activationCode !== activation_code) {
+        return next(new ErrorHandler("Invalid activation code", 400));
       }
-      const {name, email, password} = newUser.user;
-      const existUser = await userModel.findOne({email});
+      const { name, email, password } = newUser.user;
+      const existUser = await userModel.findOne({ email });
 
-      if(existUser){
-        return next(new ErrorHandler("Email already exists",400));
+      if (existUser) {
+        return next(new ErrorHandler("Email already exists", 400));
       }
 
       const user = await userModel.create({
@@ -109,7 +110,59 @@ export const activateUser = CatchAsyncError(
       res.status(200).json({
         success: true,
       });
-      
+    } catch (err: any) {
+      return next(new ErrorHandler(err.message, 400));
+    }
+  }
+);
+
+// Login user
+interface ILoginRequest {
+  email: string;
+  password: string;
+}
+
+export const loginUser = CatchAsyncError(
+  async (req: Request, resp: Response, next: NextFunction) => {
+    try {
+      const { email, password } = req.body as ILoginRequest;
+
+      // If email or password is null
+      if (!email || !password) {
+        return next(new ErrorHandler("Please enter email and password", 400));
+      }
+
+      const user = await userModel.findOne({ email }).select("+password");
+      // if there is no valid user for the given params
+      if (!user) {
+        return next(new ErrorHandler("Invalid email or password", 400));
+      }
+
+      // check if password is correct
+      const isPasswordMatch = await user.comparePassword(password);
+
+      if (!isPasswordMatch) {
+        return next(new ErrorHandler("Invalid email or password", 400));
+      }
+
+      sendToken(user, 200, resp);
+    } catch (err: any) {
+      return next(new ErrorHandler(err.message, 400));
+    }
+  }
+);
+
+// Logout user
+export const logoutUser = CatchAsyncError(
+  async (req: Request, resp: Response, next: NextFunction) => {
+    try {
+      resp.cookie("access_token", "", { maxAge: 1 });
+      resp.cookie("refresh_token", "", { maxAge: 1 });
+
+      resp.status(200).json({
+        success: true,
+        message: "User logged out successfully",
+      });
     } catch (err: any) {
       return next(new ErrorHandler(err.message, 400));
     }
