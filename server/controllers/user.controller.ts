@@ -62,6 +62,7 @@ export const registrationUser = CatchAsyncError(
   }
 );
 
+// Activate your account
 interface IActivationToken {
   token: string;
   activationCode: string;
@@ -211,6 +212,8 @@ export const updateAccessToken = CatchAsyncError(
         }
       );
 
+      req.user = user;
+
       resp.cookie("access_token", accessToken, accessTokenOptions);
       resp.cookie("refresh_token", refreshToken, refreshTokenOptions);
 
@@ -237,14 +240,13 @@ export const getUserInformation = CatchAsyncError(
   }
 );
 
+// social login
 
 interface ISocialAuthBody {
   name: string;
   email: string;
   avatar: string;
 }
-
-// social login
 export const socialLogin = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -257,6 +259,44 @@ export const socialLogin = CatchAsyncError(
       } else {
         sendToken(user, 200, res);
       }
+    } catch (err: any) {
+      return next(new ErrorHandler(err.message, 400));
+    }
+  }
+);
+
+// Update User Information
+interface IUpdateUserInfo {
+  name?: string;
+  email?: string;
+}
+
+export const updateUserInfo = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name, email } = req.body as IUpdateUserInfo;
+      const userId = req.user?._id;
+      const user = await userModel.findById(userId);
+
+      if (email && user) {
+        const isEmailExist = await userModel.findOne({ email });
+        if (isEmailExist) {
+          return next(new ErrorHandler("Email already exists", 400));
+        }
+        user.email = email;
+      }
+
+      if (name && user) {
+        user.name = name;
+      }
+
+      await user?.save();
+      await redis.set(userId, JSON.stringify(user));
+
+      res.status(201).json({
+        success: true,
+        user,
+      });
     } catch (err: any) {
       return next(new ErrorHandler(err.message, 400));
     }
