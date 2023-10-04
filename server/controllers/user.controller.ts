@@ -13,6 +13,8 @@ import {
 } from "../utils/jwt";
 import { redis } from "../utils/redis";
 import { getUserById } from "../services/user.service";
+import cloudinary from "cloudinary";
+
 require("dotenv").config();
 
 // Register User
@@ -294,6 +296,106 @@ export const updateUserInfo = CatchAsyncError(
       await redis.set(userId, JSON.stringify(user));
 
       res.status(201).json({
+        success: true,
+        user,
+      });
+    } catch (err: any) {
+      return next(new ErrorHandler(err.message, 400));
+    }
+  }
+);
+
+// update user password
+
+interface IUpdatePassword {
+  oldPassword: string;
+  newPassword: string;
+}
+
+export const updateUserPassword = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { oldPassword, newPassword } = req.body as IUpdatePassword;
+
+      if (!oldPassword || !newPassword) {
+        return next(
+          new ErrorHandler("Please enter old and new passwords", 400)
+        );
+      }
+
+      if (oldPassword === newPassword) {
+        return next(new ErrorHandler("Both passwords cannot be same", 400));
+      }
+
+      const userId = req.user?._id;
+      const user = await userModel.findById(userId).select("+password");
+
+      if (user?.password === undefined) {
+        return next(new ErrorHandler("Invalid User", 400));
+      }
+
+      const isPasswordMatch = await user?.comparePassword(oldPassword);
+
+      if (!isPasswordMatch) {
+        return next(new ErrorHandler("Invalid Old Password", 400));
+      } else {
+        user.password = newPassword;
+      }
+
+      await user.save();
+      await redis.set(req.user?._id, JSON.stringify(user));
+
+      res.status(201).json({
+        success: true,
+        user,
+      });
+    } catch (err: any) {
+      return next(new ErrorHandler(err.message, 400));
+    }
+  }
+);
+
+// Update user avatar
+
+interface IUpdateAvatar {
+  avatar: string;
+}
+
+export const updateUserAvatar = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { avatar } = req.body;
+      const userId = req.user?._id;
+
+      const user = await userModel.findById(userId);
+
+      if (avatar && user) {
+        if (user?.avatar?.public_id) {
+          await cloudinary.v2.uploader.destroy(user?.avatar?.public_id); // delete old avatar
+          const myCloud = await cloudinary.v2.uploader.upload(avatar, {
+            folder: "avatars",
+            width: 150,
+          });
+          user.avatar = {
+            public_id: myCloud.public_id,
+            url: myCloud.secure_url,
+          };
+        } else {
+          const myCloud = await cloudinary.v2.uploader.upload(avatar, {
+            folder: "avatars",
+            width: 150,
+          });
+          user.avatar = {
+            public_id: myCloud.public_id,
+            url: myCloud.secure_url,
+          };
+        }
+      }
+
+      await redis.set(userId, JSON.stringify(user));
+      await user?.save();
+
+      res.status(200).json({
         success: true,
         user,
       });
